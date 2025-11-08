@@ -186,7 +186,7 @@ export const HomePage: React.FC = () => {
                              <ul className="space-y-2 text-sm text-gray-300">
                                 {alerts.map((alert, index) => (
                                     <li key={index}>
-                                        <span className="font-mono text-gray-500">[{alert.timestamp}]</span> {alert.message}
+                                        <span className="font-mono text-gray-500">[{new Date(alert.createdAt).toLocaleTimeString()}]</span> {alert.message}
                                     </li>
                                 ))}
                             </ul>

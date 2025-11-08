@@ -30,7 +30,7 @@ export const useTextToSpeech = (): TextToSpeechControls => {
 
   const stop = useCallback(() => {
     utteranceQueueRef.current = []; // Clear the queue
-    if ('speechSynthesis' in window) {
+    if ('speechSynthesis' in window && window.speechSynthesis) {
       window.speechSynthesis.cancel();
     }
     // Manually reset state because cancel() doesn't reliably fire onend event

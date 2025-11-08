@@ -1,6 +1,5 @@
-git remote add origin https://github.com/MANI8148/LINK-SPACE.git
-git branch -M main
-git push -u origin mainimport mongoose, { Schema, Document } from "mongoose";
+
+import mongoose, { Schema, Document } from "mongoose";
 
 export interface IChat extends Document {
   userId: mongoose.Types.ObjectId;

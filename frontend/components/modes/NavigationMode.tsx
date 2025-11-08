@@ -5,36 +5,14 @@ import { MicIcon } from '../icons/MicIcon';
 import { AlertContext } from '../../context/AlertContext';
 import { useTextToSpeech } from '../../hooks/useTextToSpeech';
 import { Button } from '../Button';
-
-// Fix for SpeechRecognition API types not being present in default TS lib.
-// This defines minimal interfaces to allow the code to compile without adding new dependencies.
-interface SpeechRecognition extends EventTarget {
-    continuous: boolean;
-    lang: string;
-    interimResults: boolean;
-    onstart: (() => void) | null;
-    onend: (() => void) | null;
-    onerror: ((event: any) => void) | null;
-    onresult: ((event: any) => void) | null;
-    start: () => void;
-    stop: () => void;
-}
-
-interface SpeechRecognitionStatic {
-    new(): SpeechRecognition;
-}
-
-const SpeechRecognition: SpeechRecognitionStatic | undefined = (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
-const isSpeechRecognitionSupported = !!SpeechRecognition;
+import { useVoiceNavigation } from '../../hooks/useVoiceNavigation';
 
 export const NavigationMode: React.FC = () => {
     const [location, setLocation] = useState<{lat: number, lon: number} | null>(null);
     const [destination, setDestination] = useState('');
     const [directions, setDirections] = useState('');
     const [isLoading, setIsLoading] = useState(false);
-    const [isListening, setIsListening] = useState(false);
     const [error, setError] = useState('');
-    const recognitionRef = useRef<SpeechRecognition | null>(null);
     const { addAlert } = useContext(AlertContext);
     const { speak, stop, pause, resume, isSpeaking, isPaused } = useTextToSpeech();
 
@@ -77,7 +55,7 @@ export const NavigationMode: React.FC = () => {
         }
     }, [speak]);
 
-    const handleGetDirections = useCallback(async (destinationQuery: string) => {
+    const fetchDirections = useCallback(async (destinationQuery: string) => {
         if (!location) {
             setError("Could not determine current location.");
             return;
@@ -113,103 +91,27 @@ export const NavigationMode: React.FC = () => {
         }
     }, [location, stop, speak, addAlert]);
 
+    const {
+        handleToggleListening,
+        isListening,
+        getMicButtonLabel,
+        speechError
+    } = useVoiceNavigation({
+        fetchDirections,
+        fetchLocation,
+        setDestination,
+        setDirections,
+        setError,
+        speak,
+        stop,
+        isLoading
+    });
+
     useEffect(() => {
-        fetchLocation();
-
-        if (isSpeechRecognitionSupported) {
-            const recognition = new SpeechRecognition();
-            recognition.continuous = false;
-            recognition.lang = 'en-US';
-            recognition.interimResults = false;
-
-            recognition.onstart = () => setIsListening(true);
-            recognition.onend = () => setIsListening(false);
-            recognition.onerror = (event) => {
-                console.error("Speech recognition error:", event.error);
-                const errorMsg = "Sorry, I didn't catch that. Please try again.";
-                setError(errorMsg);
-                speak(errorMsg);
-            };
-            recognition.onresult = (event) => {
-                const transcript = event.results[0][0].transcript;
-                if (transcript && transcript.trim()) {
-                    setDestination(transcript);
-                    handleGetDirections(transcript);
-                } else {
-                    const errorMsg = "I didn't catch that. Could you please try again?";
-                    setError(errorMsg);
-                    speak(errorMsg);
-                }
-            };
-            recognitionRef.current = recognition;
-        } else {
-            setError("Voice input is not supported by your browser.");
-        }
-
         return () => {
             stop(); // Cleanup speech synthesis on unmount
         }
-    }, [fetchLocation, handleGetDirections, speak]);
-    
-    const handleToggleListening = () => {
-      if (!recognitionRef.current || isLoading) return;
-    
-      if (isListening) {
-        recognitionRef.current.stop();
-        return;
-      }
-    
-      setDestination('');
-      setDirections('');
-      setError('');
-      stop();
-      speak("Listening for destination...");
-    
-      const recognition = recognitionRef.current;
-      let finalTranscript = '';
-    
-      recognition.start();
-    
-      // Force stop after 5seconds (of listening)
-      const stopTimeout = setTimeout(() => {
-        recognition.stop();
-      }, 5000);
-    
-      recognition.onresult = (event) => {
-        for (let i = 0; i < event.results.length; ++i) {
-          finalTranscript += event.results[i][0].transcript;
-        }
-      };
-    
-      recognition.onend = () => {
-        clearTimeout(stopTimeout);
-        setIsListening(false);
-        if (finalTranscript.trim()) {
-          setDestination(finalTranscript.trim());
-          handleGetDirections(finalTranscript.trim());
-        } else {
-          const msg = "I didn’t catch that clearly. Please try again.";
-          setError(msg);
-          speak(msg);
-        }
-      };
-    
-      recognition.onerror = (event) => {
-        clearTimeout(stopTimeout);
-        console.error("Speech recognition error:", event.error);
-        const msg = "Voice recognition error. Please try again.";
-        setError(msg);
-        speak(msg);
-      };
-    
-      setIsListening(true);
-    };
-
-    const getMicButtonLabel = () => {
-        if (isLoading && !isListening) return "Getting Directions...";
-        if (isListening) return "Listening...";
-        return "Tap to Speak Destination";
-    }
+    }, [stop]);
 
     return (
         <DashboardCard title="Navigation Mode">
@@ -244,7 +146,7 @@ export const NavigationMode: React.FC = () => {
                 )}
 
                 {error && (
-                    <div className="text-center space-y-2">
+                    <div className="text-center space-y-2 text-red-500 text-sm">
                         <p className="text-red-500 text-sm">{error}</p>
                         {error.toLowerCase().includes('location') && (
                             <Button 
@@ -256,6 +158,10 @@ export const NavigationMode: React.FC = () => {
                             </Button>
                         )}
                     </div>
+                )}
+
+                {speechError && !error && (
+                    <p className="text-center text-red-500 text-sm">{speechError}</p>
                 )}
 
                 {directions && (

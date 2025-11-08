@@ -1,13 +1,17 @@
 // backend/src/models/Alert.ts
-import mongoose, { Schema } from "mongoose";
+import mongoose, { Schema, Document } from "mongoose";
 
-const alertSchema = new Schema(
+export interface IAlert extends Document {
+  message: string;
+  userId: mongoose.Types.ObjectId;
+}
+
+const alertSchema = new Schema<IAlert>(
   {
     message: { type: String, required: true },
     userId: { type: Schema.Types.ObjectId, ref: "User", required: true },
-    createdAt: { type: Date, default: Date.now },
   },
-  { timestamps: false }
+  { timestamps: true }
 );
 
-export const Alert = mongoose.model("Alert", alertSchema);
+export const Alert = mongoose.model<IAlert>("Alert", alertSchema);

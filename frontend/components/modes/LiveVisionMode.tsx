@@ -9,30 +9,12 @@ import { EyeIcon } from "../icons/EyeIcon";
 import { MicIcon } from "../icons/MicIcon";
 import { AlertContext } from "../../context/AlertContext";
 import { useTextToSpeech } from "../../hooks/useTextToSpeech";
+import { useSpeechRecognition } from "../../hooks/useSpeechRecognition";
 import { AuthContext } from "../../context/AuthContext"; // Access user
 import { saveChatMessage } from "../../services/chatService"; // Save chat
 import { saveAlert } from "../../services/alertService"; // Save alerts
 
-// 🗣️ Minimal SpeechRecognition type fix for TS
-interface SpeechRecognition extends EventTarget {
-  continuous: boolean;
-  lang: string;
-  interimResults: boolean;
-  onstart: (() => void) | null;
-  onend: (() => void) | null;
-  onerror: ((event: any) => void) | null;
-  onresult: ((event: any) => void) | null;
-  start: () => void;
-  stop: () => void;
-}
-
-interface SpeechRecognitionStatic {
-  new (): SpeechRecognition;
-}
-
-const SpeechRecognition: SpeechRecognitionStatic | undefined =
-  (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
-const isSpeechRecognitionSupported = !!SpeechRecognition;
+const isSpeechRecognitionSupported = typeof window !== 'undefined' && ('SpeechRecognition' in window || 'webkitSpeechRecognition' in window);
 
 export const LiveVisionMode: React.FC = () => {
   const [chat, setChat] = useState<Chat | null>(null);
@@ -40,7 +22,6 @@ export const LiveVisionMode: React.FC = () => {
   const [isLoading, setIsLoading] = useState(false);
   const [isListening, setIsListening] = useState(false);
   const [isCameraOn, setIsCameraOn] = useState(false);
-  const [isVideoReady, setIsVideoReady] = useState(false);
   const [error, setError] = useState("");
 
   const { addAlert } = useContext(AlertContext);
@@ -51,7 +32,14 @@ export const LiveVisionMode: React.FC = () => {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const mediaStreamRef = useRef<MediaStream | null>(null);
   const chatContainerRef = useRef<HTMLDivElement>(null);
-  const recognitionRef = useRef<SpeechRecognition | null>(null);
+
+  const handleSpeechResult = (transcript: string) => {
+    if (transcript.trim()) {
+      sendMultiModalMessage(transcript, transcript);
+    }
+  };
+
+  const { startListening, isListening: isMicListening, error: recognitionError } = useSpeechRecognition(handleSpeechResult);
 
   // 🎥 Start camera safely
   const startCamera = useCallback(async () => {
@@ -70,7 +58,6 @@ export const LiveVisionMode: React.FC = () => {
               width: videoRef.current?.videoWidth,
               height: videoRef.current?.videoHeight,
             });
-            setIsVideoReady(true);
           };
         }
         setIsCameraOn(true);
@@ -88,7 +75,6 @@ export const LiveVisionMode: React.FC = () => {
       mediaStreamRef.current.getTracks().forEach((t) => t.stop());
     }
     setIsCameraOn(false);
-    setIsVideoReady(false);
   }, []);
 
   // 🧠 Init chat, speech, and camera
@@ -99,24 +85,7 @@ export const LiveVisionMode: React.FC = () => {
     ]);
 
     if (isSpeechRecognitionSupported) {
-      const recognition = new SpeechRecognition();
-      recognition.continuous = false;
-      recognition.lang = "en-US";
-      recognition.interimResults = false;
-
-      recognition.onstart = () => setIsListening(true);
-      recognition.onend = () => setIsListening(false);
-      recognition.onerror = (event) => {
-        console.error("Speech recognition error:", event.error);
-        setError("Sorry, I didn’t catch that. Please try again.");
-      };
-      recognition.onresult = (event) => {
-        const transcript = event.results[0][0].transcript;
-        if (transcript.trim()) {
-          sendMultiModalMessage(transcript, transcript);
-        }
-      };
-      recognitionRef.current = recognition;
+      // Hook is already initialized
     } else {
       setError("Voice input is not supported in this browser.");
     }
@@ -125,7 +94,6 @@ export const LiveVisionMode: React.FC = () => {
 
     return () => {
       stopCamera();
-      recognitionRef.current?.stop();
       stopSpeech();
     };
   }, [startCamera, stopCamera, stopSpeech]);
@@ -137,7 +105,7 @@ export const LiveVisionMode: React.FC = () => {
 
   // 📸 Capture a video frame (safe)
   const captureFrame = (): string | null => {
-    if (!isCameraOn || !isVideoReady || !videoRef.current || !canvasRef.current) {
+    if (!isCameraOn || !videoRef.current || !canvasRef.current) {
       console.warn("⚠️ Tried capturing before camera ready.");
       return null;
     }
@@ -231,12 +199,11 @@ export const LiveVisionMode: React.FC = () => {
 
   // 🎙️ Mic control
   const handleToggleListening = () => {
-    if (!recognitionRef.current || isLoading) return;
-    if (isListening) recognitionRef.current.stop();
-    else {
+    if (isLoading || isMicListening) return;
+    if (isCameraOn) {
       setError("");
-      recognitionRef.current.start();
-    }
+      startListening();
+    } 
   };
 
   // 👁️ Task handlers
@@ -280,21 +247,21 @@ export const LiveVisionMode: React.FC = () => {
             <div className="grid grid-cols-2 lg:flex lg:flex-row gap-2 mb-4">
               <Button
                 onClick={handleDescribeScene}
-                disabled={!isVideoReady || isLoading}
+                disabled={isLoading}
                 className="flex-1"
               >
                 Describe Scene
               </Button>
               <Button
                 onClick={handleIdentifyObjects}
-                disabled={!isVideoReady || isLoading}
+                disabled={isLoading}
                 className="flex-1 bg-purple-600 hover:bg-purple-700"
               >
                 Identify Objects
               </Button>
               <Button
                 onClick={handleReadText}
-                disabled={!isVideoReady || isLoading}
+                disabled={isLoading}
                 className="flex-1"
               >
                 Read Text
@@ -341,30 +308,28 @@ export const LiveVisionMode: React.FC = () => {
               </div>
             ))}
           </div>
-          {error && <p className="text-red-500 text-sm mb-2 text-center">{error}</p>}
+          {(error || recognitionError) && <p className="text-red-500 text-sm mb-2 text-center">{error || recognitionError}</p>}
           <div className="flex flex-col items-center justify-center pt-2">
             <button
               onClick={handleToggleListening}
               disabled={!isCameraOn || isLoading}
               className={`relative flex items-center justify-center w-16 h-16 rounded-full transition-colors duration-200 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-offset-gray-800 focus:ring-blue-500 disabled:bg-gray-600 disabled:cursor-not-allowed ${
-                isListening
+                isMicListening
                   ? "bg-red-600 text-white"
                   : "bg-blue-600 text-white hover:bg-blue-700"
               }`}
             >
               <MicIcon className="w-8 h-8" />
-              {isListening && (
+              {isMicListening && (
                 <span className="absolute h-full w-full rounded-full bg-red-600 animate-ping opacity-75"></span>
               )}
             </button>
             <p className="text-gray-400 text-sm mt-2 h-4">
               {!isCameraOn
                 ? "Start camera to ask questions"
-                : isListening
+                : isMicListening
                 ? "Listening..."
-                : isVideoReady
-                ? "Tap to ask"
-                : "Initializing camera..."}
+                : "Tap to ask"}
             </p>
           </div>
         </div>
