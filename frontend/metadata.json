@@ -1,9 +1,0 @@
-{
-  "name": "Copy of VisionMate",
-  "description": "A web application to assist the visually impaired by providing a support dashboard for family and admins. It simulates features of the Blind-Nav Android app, including location tracking, environment alerts, and AI-powered image description.",
-  "requestFramePermissions": [
-    "geolocation",
-    "camera",
-    "microphone"
-  ]
-}
